@@ -7,50 +7,55 @@
 // belt_loader_behavior_tree
 #include "behavior_tree_ros/subscriber_node.h"
 
-namespace BT {
+namespace BT
+{
 
 /**
  * Generic get topic data and output the data.
  */
 template <class T>
-class GetTopic : public SubscriberNode<T>, virtual public BT::SyncActionNode {
- protected:
+class GetTopic : public SubscriberNode<T>, virtual public BT::SyncActionNode
+{
+protected:
   GetTopic(const std::string& name, const BT::NodeConfiguration& conf)
-      : SubscriberNode<T>(name, conf), BT::SyncActionNode(name, conf) {}
+    : SubscriberNode<T>(name, conf), BT::SyncActionNode(name, conf)
+  {
+  }
 
- public:
+public:
   GetTopic() = delete;
   virtual ~GetTopic() = default;
 
-  static PortsList providedPorts() {
-    return { OutputPort<T>("msg") }
+  static PortsList providedPorts()
+  {
+    return
+    {
+      OutputPort<T>("msg")
+    }
   }
 
- protected:
+protected:
   inline void onFailure() override{};
 
-  inline BT::NodeStatus onFinish() override {
+  inline BT::NodeStatus onFinish() override
+  {
     setOutput("msg", this->msg_);
     return BT::NodeStatus::SUCCESS;
   }
 };
 
 template <class DerivedT>
-static void RegisterGetTopic(BT::BehaviorTreeFactory& factory,
-                             const std::string& registration_ID) {
-  BT::NodeBuilder builder = [](const std::string& name,
-                               const BT::NodeConfiguration& config) {
-    return std::make_unique<DerivedT>(name, config);
-  };
+static void RegisterGetTopic(BT::BehaviorTreeFactory& factory, const std::string& registration_ID)
+{
+  BT::NodeBuilder builder = [](const std::string& name, const BT::NodeConfiguration& config)
+  { return std::make_unique<DerivedT>(name, config); };
 
   BT::TreeNodeManifest manifest;
   manifest.type = getType<DerivedT>();
   manifest.ports = DerivedT::providedPorts();
   manifest.registration_ID = registration_ID;
-  const auto& basic_ports =
-      SubscriberNode<typename DerivedT::SubscriberType>::providedPorts();
-  const auto& get_topic_ports =
-      GetTopic<typename DerivedT::SubscriberType>::providedPorts();
+  const auto& basic_ports = SubscriberNode<typename DerivedT::SubscriberType>::providedPorts();
+  const auto& get_topic_ports = GetTopic<typename DerivedT::SubscriberType>::providedPorts();
   manifest.ports.insert(basic_ports.begin(), basic_ports.end());
   manifest.ports.insert(get_topic_ports.begin(), get_topic_ports.end());
   factory.registerBuilder(manifest, builder);

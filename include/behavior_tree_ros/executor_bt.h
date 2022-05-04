@@ -26,9 +26,12 @@
 #include <ros/ros.h>
 #include <std_srvs/Trigger.h>
 
-namespace behavior_tree_ros {
+namespace behavior_tree_ros
+{
 
-class ExecutorBT {
+class ExecutorBT
+{
+  ros::NodeHandle pnh_;
   ros::NodeHandle nh_;
   behavior_tree_ros::Factory factory_;
 
@@ -48,14 +51,14 @@ class ExecutorBT {
   std::unique_ptr<BT::PublisherZMQ> zmq_publisher_;
   int tree_sleep_;
 
- public:
+public:
   ExecutorBT();
   ~ExecutorBT();
   BT::NodeStatus getStatus();
   bool load(const std::string& tree_xml);
   bool unload();
 
- private:
+private:
   void execute(const std::string& tree_xml);
   bool load(LoadTreeRequest& req, LoadTreeResponse& res);
   bool unload(std_srvs::TriggerRequest& req, std_srvs::TriggerResponse& res);
