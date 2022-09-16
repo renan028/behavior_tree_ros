@@ -1,0 +1,4 @@
+<launch>
+  <node pkg="bt_ros" type="actionlib-simple_execute_ref_server" name="ref_server" output="screen" />
+  <test test-name="simple_action_1" pkg="bt_ros" type="simple_action_1" time-limit="50.0"/>
+</launch>
