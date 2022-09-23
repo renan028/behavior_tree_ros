@@ -82,6 +82,15 @@ private:
     return;
   }
 
+  /**
+   * @brief Called when the action server is preempted. The user should change the member variable result_ to the
+   * desired
+   */
+  virtual void onCancel()
+  {
+    return;
+  }
+
 protected:
   SimpleActionServerNode(ros::NodeHandle& pnh, const std::string& name)
     : nh_()
@@ -137,11 +146,13 @@ private:
           {
             executor_.stop();
             executor_.loadFile(behavior_name_);
+            continue;
           }
         }
         else
         {
           executor_.stop();
+          onCancel();
           action_server_.setPreempted(result_);
           return;
         }

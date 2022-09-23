@@ -104,12 +104,121 @@ TEST_F(SimpleServer1Test, Success)
   actionlib::TestGoal goal;
   client.sendGoal(goal);
 
-  waitForMsg(on_configuration_msg_, 1.0);
-  ASSERT_TRUE(on_configuration_msg_);
-
   ASSERT_TRUE(client.waitForResult(ros::Duration(2.0)));
   EXPECT_EQ(client.getState(), actionlib::SimpleClientGoalState::SUCCEEDED);
   EXPECT_EQ(client.getResult()->result, 5);
+
+  pnh.deleteParam("behavior_name");
+}
+
+TEST_F(SimpleServer1Test, Preempt)
+{
+  ros::NodeHandle pnh("~");
+  pnh.setParam("behavior_name", "test/trees/wait_3");
+
+  SimpleServer1 server(pnh, "action");
+  actionlib::TestGoal goal;
+  client.sendGoal(goal);
+
+  client.cancelGoal();
+  ASSERT_TRUE(client.waitForResult(ros::Duration(2.0)));
+  EXPECT_EQ(client.getState(), actionlib::SimpleClientGoalState::PREEMPTED);
+  EXPECT_EQ(client.getResult()->result, 3);
+
+  pnh.deleteParam("behavior_name");
+}
+
+TEST_F(SimpleServer1Test, NewGoalNoRestart)
+{
+  ros::NodeHandle pnh("~");
+  pnh.setParam("behavior_name", "test/trees/wait_3");
+
+  SimpleServer1 server(pnh, "action");
+  server.setRestartOnNewGoal(false);
+  actionlib::TestGoal goal;
+  client.sendGoal(goal);
+
+  ros::Time start = ros::Time::now();
+  ros::Duration(1.0).sleep();
+  client.sendGoal(goal);
+  waitForMsg(on_new_goal_msg_, 1.0);
+  ASSERT_TRUE(on_new_goal_msg_);
+  EXPECT_TRUE(on_new_goal_msg_->data);
+
+  double time_left = 3.5 - (ros::Time::now() - start).toSec();
+  ASSERT_TRUE(client.waitForResult(ros::Duration(time_left)));
+  EXPECT_EQ(client.getState(), actionlib::SimpleClientGoalState::SUCCEEDED);
+  EXPECT_EQ(client.getResult()->result, 5);
+
+  pnh.deleteParam("behavior_name");
+}
+
+TEST_F(SimpleServer1Test, NewGoalRestart)
+{
+  ros::NodeHandle pnh("~");
+  pnh.setParam("behavior_name", "test/trees/wait_3");
+
+  SimpleServer1 server(pnh, "action");
+  server.setRestartOnNewGoal(true);
+  actionlib::TestGoal goal;
+  client.sendGoal(goal);
+
+  ros::Time start = ros::Time::now();
+  ros::Duration(1.0).sleep();
+  client.sendGoal(goal);
+  waitForMsg(on_new_goal_msg_, 1.0);
+  ASSERT_TRUE(on_new_goal_msg_);
+
+  ros::Time new_start = ros::Time::now();
+  EXPECT_TRUE(on_new_goal_msg_->data);
+
+  double wrong_time_left = 3.5 - (ros::Time::now() - start).toSec();
+  double real_time_left = 3.5 - (ros::Time::now() - new_start).toSec();
+
+  ASSERT_FALSE(client.waitForResult(ros::Duration(wrong_time_left)));
+  ASSERT_TRUE(client.waitForResult(ros::Duration(real_time_left)));
+  EXPECT_EQ(client.getState(), actionlib::SimpleClientGoalState::SUCCEEDED);
+  EXPECT_EQ(client.getResult()->result, 5);
+
+  pnh.deleteParam("behavior_name");
+}
+
+TEST_F(SimpleServer1Test, NewGoalAbort)
+{
+  ros::NodeHandle pnh("~");
+  pnh.setParam("behavior_name", "test/trees/wait_3");
+
+  SimpleServer1 server(pnh, "action");
+  server.setRestartOnNewGoal(false);
+  server.abort_on_new_goal = true;
+  actionlib::TestGoal goal;
+  client.sendGoal(goal);
+
+  ros::Duration(1.0).sleep();
+  client.sendGoal(goal);
+  waitForMsg(on_new_goal_msg_, 1.0);
+  ASSERT_TRUE(on_new_goal_msg_);
+  EXPECT_TRUE(on_new_goal_msg_->data);
+
+  ASSERT_TRUE(client.waitForResult(ros::Duration(1.0)));
+  EXPECT_EQ(client.getState(), actionlib::SimpleClientGoalState::ABORTED);
+  EXPECT_EQ(client.getResult()->result, 7);
+
+  pnh.deleteParam("behavior_name");
+}
+
+TEST_F(SimpleServer1Test, Failure)
+{
+  ros::NodeHandle pnh("~");
+  pnh.setParam("behavior_name", "test/trees/wait_failure");
+
+  SimpleServer1 server(pnh, "action");
+  actionlib::TestGoal goal;
+  client.sendGoal(goal);
+
+  ASSERT_TRUE(client.waitForResult(ros::Duration(1.0)));
+  EXPECT_EQ(client.getState(), actionlib::SimpleClientGoalState::ABORTED);
+  EXPECT_EQ(client.getResult()->result, 1);
 
   pnh.deleteParam("behavior_name");
 }

@@ -8,7 +8,6 @@ private:
   ros::Publisher on_configuration_;
   ros::Publisher on_load_fail_;
   ros::Publisher on_new_goal_;
-  ros::Publisher on_feedback_;
 
   bool onConfiguration(const GoalConstPtr& goal) final
   {
@@ -35,6 +34,11 @@ private:
     std_msgs::Bool msg;
     msg.data = true;
     on_new_goal_.publish(msg);
+    if (abort_on_new_goal)
+    {
+      result_.result = 7;
+      return false;
+    }
     return true;
   }
 
@@ -45,7 +49,6 @@ private:
     feedback.feedback = feedback_count;
     std_msgs::Bool msg;
     msg.data = true;
-    on_feedback_.publish(msg);
     action_server_.publishFeedback(feedback);
     feedback_count = feedback_count == INT_MAX ? 0 : feedback_count + 1;
   }
@@ -70,6 +73,13 @@ private:
     return;
   }
 
+  void onCancel() final
+  {
+    ROS_INFO_STREAM("Action server SimpleServer1 cancelled");
+    result_.result = 3;
+    return;
+  }
+
 public:
   SimpleServer1(ros::NodeHandle& pnh, const std::string& name)
     : SimpleActionServerNode<actionlib::TestAction>(pnh, name)
@@ -78,10 +88,15 @@ public:
     on_configuration_ = nh.advertise<std_msgs::Bool>("on_configuration", 1, true);
     on_load_fail_ = nh.advertise<std_msgs::Bool>("on_load_fail", 1, true);
     on_new_goal_ = nh.advertise<std_msgs::Bool>("on_new_goal", 1, true);
-    on_feedback_ = nh.advertise<std_msgs::Bool>("on_feedback", 1, true);
   }
 
 public:
   bool fail_configuration = false;
   int feedback_count = 1;
+  bool abort_on_new_goal = false;
+
+  void setRestartOnNewGoal(bool restart)
+  {
+    restart_on_new_goal_ = restart;
+  }
 };
