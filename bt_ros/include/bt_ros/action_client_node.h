@@ -16,8 +16,6 @@
 namespace BT
 {
 
-using namespace actionlib;
-
 template <class ActionT>
 class SimpleActionClientNode : public BT::ActionNodeBase
 {
@@ -35,7 +33,6 @@ protected:
 
 private:
   static constexpr char LOGNAME[] = "SimpleActionClientNode";
-  static constexpr double WAIT_TIMEOUT = 0.05;
 
   inline bool createActionClient(double timeout)
   {

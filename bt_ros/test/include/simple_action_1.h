@@ -1,6 +1,6 @@
 #pragma once
 
-#include "bt_ros/action_node.h"
+#include "bt_ros/action_client_node.h"
 #include <actionlib/TestAction.h>
 #include <std_msgs/Bool.h>
 

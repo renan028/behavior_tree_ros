@@ -30,6 +30,8 @@ ExecutorBT::ExecutorBT()
   pnh_.param<int>("zmq_port", zmq_port_, 0);
   pnh_.param<int>("tree_sleep", tree_sleep_, 100);
 
+  blackboard = BT::Blackboard::create();
+
   registerNodes(factory_);
 }
 
@@ -55,16 +57,23 @@ bool ExecutorBT::load(const std::string& tree_xml)
   behavior_name_ = "behavior_" + std::to_string(tree_id_);
   try
   {
-    tree_ = factory_.createTreeFromText(tree_xml);
+    tree_ = factory_.createTreeFromText(tree_xml, blackboard);
   }
   catch (const BT::RuntimeError& e)
   {
-    ROS_WARN_STREAM_NAMED("ExecutorBT", e.what());
     ROS_ERROR_STREAM_NAMED("ExecutorBT", "Failed to load tree " << tree_xml << ": " << e.what());
     return false;
   }
+  is_running_ = true;
   thread_ = std::thread(&ExecutorBT::execute, this);
   return true;
+}
+
+bool ExecutorBT::loadFile(const std::string& tree_path)
+{
+  bt_ros_msgs::LoadTree srv;
+  srv.request.tree_xml_name = tree_path;
+  return load(srv.request, srv.response);
 }
 
 bool ExecutorBT::unload()
@@ -96,6 +105,7 @@ void ExecutorBT::execute()
     std::this_thread::sleep_for(std::chrono::milliseconds(tree_sleep_));
   }
   tree_.haltTree();
+  is_running_ = false;
 }
 
 void ExecutorBT::stop()
@@ -114,20 +124,21 @@ void ExecutorBT::stop()
 bool ExecutorBT::load(bt_ros_msgs::LoadTreeRequest& req, bt_ros_msgs::LoadTreeResponse& res)
 {
   stop();
+  validateFile(req.tree_xml_name);
   behavior_name_ = req.tree_xml_name;
   std::string path_to_file = ros::package::getPath(behavior_package_) + req.tree_xml_name;
 
   try
   {
-    tree_ = factory_.createTreeFromFile(path_to_file, BT::Blackboard::create());
+    tree_ = factory_.createTreeFromFile(path_to_file, blackboard);
   }
   catch (const BT::RuntimeError& e)
   {
-    ROS_WARN_STREAM_NAMED("ExecutorBT", e.what());
     ROS_ERROR_STREAM_NAMED("ExecutorBT", "Failed to load tree " << path_to_file << ": " << e.what());
     return false;
   }
 
+  is_running_ = true;
   thread_ = std::thread(&ExecutorBT::execute, this);
   res.success = true;
   return true;
@@ -186,6 +197,26 @@ void ExecutorBT::logger(const BT::Tree& tree)
   {
     int server_port = zmq_port_ + 1;
     zmq_publisher_ = std::make_unique<BT::PublisherZMQ>(tree, 25, zmq_port_, server_port);
+  }
+}
+
+bool ExecutorBT::isRunning() const
+{
+  return is_running_;
+}
+
+void ExecutorBT::validateFile(std::string& file) const
+{
+  if (file[0] != '/')
+  {
+    file = "/" + file;
+  }
+
+  fs::path file_path = file;
+  if (file_path.extension() != ".xml")
+  {
+    file_path.replace_extension(".xml");
+    file = file_path.string();
   }
 }
 

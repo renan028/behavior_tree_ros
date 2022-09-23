@@ -5,8 +5,6 @@
 #include <bt_ros_msgs/LoadTree.h>
 #include "bt_ros/service_node.h"
 #include "bt_ros/subscriber_node.h"
-#include "bt_ros/get_topic.h"
-#include "bt_ros/action_node.h"
 
 // std
 #include <atomic>
@@ -46,6 +44,7 @@ private:
   std::thread thread_;
   std::atomic<bool> exit_;
   std::mutex mutex_;
+  bool is_running_;
 
   BT::NodeStatus status_;
   uint32_t tree_id_;
@@ -55,19 +54,29 @@ private:
   BT::Tree tree_;
 
 public:
+  BT::Blackboard::Ptr blackboard;
+
   ExecutorBT();
   ~ExecutorBT();
   BT::NodeStatus getStatus();
   bool load(const std::string& tree_xml);
+  bool loadFile(const std::string& tree_path);
   bool unload();
   BT::BehaviorTreeFactory& getFactory();
+  void stop();
+  bool isRunning() const;
+
+  inline BT::NodeStatus getStatus() const
+  {
+    return status_;
+  }
 
 private:
   void execute();
   bool load(bt_ros_msgs::LoadTreeRequest& req, bt_ros_msgs::LoadTreeResponse& res);
   bool unload(std_srvs::TriggerRequest& req, std_srvs::TriggerResponse& res);
   void logger(const BT::Tree& node);
-  void stop();
+  void validateFile(std::string& file_path) const;
 };
 
 }  // namespace behavior_tree_ros

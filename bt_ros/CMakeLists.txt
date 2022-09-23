@@ -70,12 +70,12 @@ add_executable(actionlib-simple_execute_ref_server test/src/simple_execute_ref_s
 target_link_libraries(actionlib-simple_execute_ref_server ${catkin_LIBRARIES})
 
 find_package(rostest REQUIRED)
+
 add_rostest_gtest(simple_action_1
   test/simple_action_1.test
   test/simple_action_1_test.cpp
 )
 target_link_libraries(simple_action_1
-  ${catkin_LIBRARIES}
   ${PROJECT_NAME}
 )
 
@@ -84,6 +84,13 @@ add_rostest_gtest(service_node
   test/service_node_test.cpp
 )
 target_link_libraries(service_node
-  ${catkin_LIBRARIES}
+  ${PROJECT_NAME}
+)
+
+add_rostest_gtest(simple_server_1
+  test/simple_server_1.test
+  test/simple_server_1_test.cpp
+)
+target_link_libraries(simple_server_1
   ${PROJECT_NAME}
 )
