@@ -79,16 +79,6 @@ protected:
 
     while (true)
     {
-      if (ros::Time::now() - start_time_ > ros::Duration(sec))
-      {
-        first_tick_ = true;
-        ROSFMT_ERROR_NAMED("SubscriberNode", "No message received in topic {} after {} sec ", topic, sec);
-        onFailure();
-        return BT::NodeStatus::FAILURE;
-      }
-
-      ros::Duration(static_cast<double>(MIN_WAIT_TIME_MS) * 1e-3).sleep();
-
       {
         std::lock_guard<std::mutex> lock(mtx_);
         if (nmsg_)
@@ -96,6 +86,14 @@ protected:
           msg_ = nmsg_.value();
           break;
         }
+      }
+
+      if (ros::Time::now() - start_time_ > ros::Duration(sec))
+      {
+        first_tick_ = true;
+        ROSFMT_ERROR_NAMED("SubscriberNode", "No message received in topic {} after {} sec ", topic, sec);
+        onFailure();
+        return BT::NodeStatus::FAILURE;
       }
 
       setStatusRunningAndYield();
