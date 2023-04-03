@@ -16,8 +16,6 @@ template <class T>
 class GetTopic : public SubscriberNode<T>
 {
 private:
-  inline void onFailure() override{};
-
   inline BT::NodeStatus onFinish() override
   {
     this->setOutput("msg", this->msg_);

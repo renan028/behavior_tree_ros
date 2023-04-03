@@ -23,7 +23,10 @@ private:
     return BT::NodeStatus::SUCCESS;
   }
 
-  virtual void onFailure(){};
+  virtual BT::NodeStatus onFailure()
+  {
+    return BT::NodeStatus::FAILURE;
+  };
 
 protected:
   static constexpr unsigned MIN_WAIT_TIME_MS = 200;
@@ -50,6 +53,7 @@ protected:
   SubscriberT msg_;
   std::optional<SubscriberT> nmsg_;
   bool first_tick_{ true };
+  bool is_latched_{ false };
   ros::Time start_time_;
   ros::Subscriber sub_;
   std::string topic_;
@@ -61,7 +65,10 @@ protected:
       first_tick_ = false;
       start_time_ = ros::Time::now();
       std::lock_guard<std::mutex> lock(mtx_);
-      nmsg_ = std::nullopt;
+      if (!is_latched_)
+      {
+        nmsg_ = std::nullopt;
+      }
     }
 
     std::string topic;
@@ -92,8 +99,7 @@ protected:
       {
         first_tick_ = true;
         ROSFMT_ERROR_NAMED("SubscriberNode", "No message received in topic {} after {} sec ", topic, sec);
-        onFailure();
-        return BT::NodeStatus::FAILURE;
+        return onFailure();
       }
 
       setStatusRunningAndYield();
@@ -109,10 +115,16 @@ protected:
     CoroActionNode::halt();
   }
 
-  void callback(const SubscriberT& msg)
+  void callback(const ros::MessageEvent<SubscriberT>& msg_event)
   {
-    std::lock_guard<std::mutex> lock(mtx_);
-    nmsg_ = msg;
+    nmsg_ = *msg_event.getConstMessage();
+    boost::shared_ptr<const ros::M_string> const& connection_header = msg_event.getConnectionHeaderPtr();
+    auto it = connection_header->find("latching");
+    if ((it != connection_header->end()) && (it->second == "1"))
+    {
+      ROS_DEBUG("input topic is latched");
+      is_latched_ = true;
+    }
   }
 };
 
