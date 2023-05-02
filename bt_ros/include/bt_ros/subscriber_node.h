@@ -122,7 +122,7 @@ protected:
     auto it = connection_header->find("latching");
     if ((it != connection_header->end()) && (it->second == "1"))
     {
-      ROS_DEBUG("input topic is latched");
+      ROS_DEBUG_ONCE("input topic is latched");
       is_latched_ = true;
     }
   }
