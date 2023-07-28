@@ -9,122 +9,123 @@
 
 // ros
 #include <ros/ros.h>
-#include <rosfmt/full.h>
 
 namespace BT
 {
 
+/**
+ * @brief A ROS subscriber action for BehaviorTree.CPP that subscribes to a
+ * topic until a message is received or a timeout (sec). The cleanup erases the
+ * message, making sure that the next time the action is ticked, it will wait
+ * for a new message.
+ */
 template <class SubscriberT>
-class SubscriberNode : public BT::CoroActionNode
+class SubscriberNode : public BT::StatefulActionNode
 {
-private:
-  virtual BT::NodeStatus onFinish()
-  {
-    return BT::NodeStatus::SUCCESS;
-  }
-
-  virtual BT::NodeStatus onFailure()
-  {
-    return BT::NodeStatus::FAILURE;
-  };
-
 protected:
-  static constexpr unsigned MIN_WAIT_TIME_MS = 200;
-  std::mutex mtx_;
-
-  SubscriberNode(const std::string& name, const BT::NodeConfiguration& conf) : BT::CoroActionNode(name, conf)
+  SubscriberNode(const std::string& name, const BT::NodeConfiguration& conf) : BT::StatefulActionNode(name, conf)
   {
   }
 
 public:
   using SubscriberType = SubscriberT;
-  SubscriberNode() = delete;
 
-  virtual ~SubscriberNode() = default;
+  SubscriberNode() = delete;
 
   static PortsList providedPorts()
   {
     return { InputPort<std::string>("topic_name", "name of the ROS topic"),
-             InputPort<unsigned>("timeout", MIN_WAIT_TIME_MS, "timeout to subscribe to topic (milliseconds)") };
+             InputPort<double>("timeout", 1.0, "timeout to subscribe to topic (sec)") };
+  }
+
+private:
+  void cleanup()
+  {
+    nmsg_.reset();
+    sub_.shutdown();
   }
 
 protected:
-  ros::NodeHandle node_;
+  virtual BT::NodeStatus onFinish()
+  {
+     return BT::NodeStatus::SUCCESS;
+  }
+
+  virtual BT::NodeStatus onFailure()
+  {
+     return BT::NodeStatus::FAILURE;
+  };
+
+  virtual void onHalt()
+  {
+  }
+
+public:
+  inline NodeStatus onStart() override final
+  {
+     start_time_ = ros::Time::now();
+
+     getInput("topic_name", topic_);
+     if (!topic_.empty())
+     {
+       sub_ = ros::NodeHandle().subscribe(topic_, 1, &SubscriberNode::callback, this);
+     }
+     else
+     {
+       ROS_ERROR_NAMED("SubscriberNode", "topic_name is empty");
+       return NodeStatus::FAILURE;
+     }
+
+     double sec;
+     getInput("timeout", sec);
+     timeout_ = ros::Duration(sec);
+     return NodeStatus::RUNNING;
+  }
+
+  inline NodeStatus onRunning() override final
+  {
+    if (nmsg_)
+    {
+      msg_ = nmsg_.value();
+      const auto status = onFinish();
+      cleanup();
+      return status;
+    }
+
+    if (ros::Time::now() - start_time_ > timeout_)
+    {
+      ROS_ERROR_STREAM_NAMED("SubscriberNode",
+                             "No message received in topic " << topic_ << " after " << timeout_.toSec());
+      const auto status = onFailure();
+      cleanup();
+      return status;
+    }
+
+    return NodeStatus::RUNNING;
+  }
+
+  inline void onHalted() override final
+  {
+    onHalt();
+    cleanup();
+  }
+
+protected:
   SubscriberT msg_;
   std::optional<SubscriberT> nmsg_;
-  bool first_tick_{ true };
-  bool is_latched_{ false };
   ros::Time start_time_;
   ros::Subscriber sub_;
   std::string topic_;
+  ros::Duration timeout_;
 
-  BT::NodeStatus tick() override
+  bool isEmpty() const
   {
-    if (first_tick_)
-    {
-      first_tick_ = false;
-      start_time_ = ros::Time::now();
-      std::lock_guard<std::mutex> lock(mtx_);
-      if (!is_latched_)
-      {
-        nmsg_ = std::nullopt;
-      }
-    }
-
-    std::string topic;
-    getInput("topic_name", topic);
-    if (topic != topic_ && !topic.empty())
-    {
-      sub_ = node_.subscribe(topic, 1, &SubscriberNode::callback, this);
-      topic_ = topic;
-    }
-
-    unsigned msec;
-    getInput("timeout", msec);
-    msec = std::max(msec, MIN_WAIT_TIME_MS);
-    double sec = static_cast<double>(msec) * 1e-3;
-
-    while (true)
-    {
-      {
-        std::lock_guard<std::mutex> lock(mtx_);
-        if (nmsg_)
-        {
-          msg_ = nmsg_.value();
-          break;
-        }
-      }
-
-      if (ros::Time::now() - start_time_ > ros::Duration(sec))
-      {
-        first_tick_ = true;
-        ROSFMT_ERROR_NAMED("SubscriberNode", "No message received in topic {} after {} sec ", topic, sec);
-        return onFailure();
-      }
-
-      setStatusRunningAndYield();
-    }
-
-    first_tick_ = true;
-    return onFinish();
+    return !nmsg_;
   }
 
-  void halt() override
+  void callback(const SubscriberT& msg)
   {
-    first_tick_ = true;
-    CoroActionNode::halt();
-  }
-
-  void callback(const ros::MessageEvent<SubscriberT>& msg_event)
-  {
-    nmsg_ = *msg_event.getConstMessage();
-    boost::shared_ptr<const ros::M_string> const& connection_header = msg_event.getConnectionHeaderPtr();
-    auto it = connection_header->find("latching");
-    if ((it != connection_header->end()) && (it->second == "1"))
-    {
-      ROS_DEBUG_ONCE("input topic is latched");
-      is_latched_ = true;
-    }
+    nmsg_ = msg;
   }
 };
 
