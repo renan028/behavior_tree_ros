@@ -66,8 +66,8 @@ add_library(dummy_nodes_dyn SHARED test/src/register_plugins.cpp)
 target_link_libraries(dummy_nodes_dyn PRIVATE ${PROJECT_NAME})
 target_compile_definitions(dummy_nodes_dyn PRIVATE BT_PLUGIN_EXPORT)
 
-add_executable(actionlib-simple_execute_ref_server test/src/simple_execute_ref_server.cpp)
-target_link_libraries(actionlib-simple_execute_ref_server ${catkin_LIBRARIES})
+add_executable(simple_execute_ref_server test/src/simple_execute_ref_server.cpp)
+target_link_libraries(simple_execute_ref_server ${catkin_LIBRARIES})
 
 find_package(rostest REQUIRED)
 
@@ -92,5 +92,13 @@ add_rostest_gtest(simple_server_1
   test/simple_server_1_test.cpp
 )
 target_link_libraries(simple_server_1
+  ${PROJECT_NAME}
+)
+
+add_rostest_gtest(subscriber_test
+  test/subscriber.test
+  test/subscriber_test.cpp
+)
+target_link_libraries(subscriber_test
   ${PROJECT_NAME}
 )
