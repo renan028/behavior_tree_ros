@@ -6,6 +6,7 @@
 
 // std
 #include <optional>
+#include <mutex>
 
 // ros
 #include <ros/ros.h>
@@ -14,10 +15,8 @@ namespace BT
 {
 
 /**
- * @brief A ROS subscriber action for BehaviorTree.CPP that subscribes to a
- * topic until a message is received or a timeout (sec). The cleanup erases the
- * message, making sure that the next time the action is ticked, it will wait
- * for a new message.
+ * @brief A ROS subscriber action for BehaviorTree.CPP that subscribes to a topic until a message is received or a
+ * timeout (sec)
  */
 template <class SubscriberT>
 class SubscriberNode : public BT::StatefulActionNode
@@ -29,8 +28,9 @@ protected:
 
 public:
   using SubscriberType = SubscriberT;
-
   SubscriberNode() = delete;
+
+  virtual ~SubscriberNode() = default;
 
   static PortsList providedPorts()
   {
@@ -39,21 +39,30 @@ public:
   }
 
 private:
-  void cleanup()
+  static constexpr auto LOGNAME = "SubscriberNode";
+
+  std::optional<SubscriberT> nmsg_;
+  SubscriberT msg_;
+  std::mutex async_spin_mtx_;
+  std::mutex msg_mtx_;
+  ros::Time start_time_;
+  ros::Subscriber sub_;
+
+  void callback(const SubscriberT& msg)
   {
-    nmsg_.reset();
-    sub_.shutdown();
+    // lock for async spinners
+    std::lock_guard lock(async_spin_mtx_);
+    nmsg_ = msg;
   }
 
-protected:
   virtual BT::NodeStatus onFinish()
   {
-     return BT::NodeStatus::SUCCESS;
+    return BT::NodeStatus::SUCCESS;
   }
 
   virtual BT::NodeStatus onFailure()
   {
-     return BT::NodeStatus::FAILURE;
+    return BT::NodeStatus::FAILURE;
   };
 
   virtual void onHalt()
@@ -63,69 +72,103 @@ protected:
 public:
   inline NodeStatus onStart() override final
   {
-     start_time_ = ros::Time::now();
+    start_time_ = ros::Time::now();
 
-     getInput("topic_name", topic_);
-     if (!topic_.empty())
-     {
-       sub_ = ros::NodeHandle().subscribe(topic_, 1, &SubscriberNode::callback, this);
-     }
-     else
-     {
-       ROS_ERROR_NAMED("SubscriberNode", "topic_name is empty");
-       return NodeStatus::FAILURE;
-     }
+    getInput("topic_name", topic_);
+    if (!topic_.empty())
+    {
+      sub_ = ros::NodeHandle().subscribe(topic_, 1, &SubscriberNode::callback, this);
+    }
+    else
+    {
+      ROS_ERROR_NAMED(LOGNAME, "topic_name is empty");
+      return NodeStatus::FAILURE;
+    }
 
-     double sec;
-     getInput("timeout", sec);
-     timeout_ = ros::Duration(sec);
-     return NodeStatus::RUNNING;
+    double sec;
+    getInput("timeout", sec);
+    sec = sec < 0 ? 0 : sec;
+    timeout_ = ros::Duration(sec);
+    return NodeStatus::RUNNING;
   }
 
   inline NodeStatus onRunning() override final
   {
-    if (nmsg_)
+    BT::NodeStatus status;
     {
-      msg_ = nmsg_.value();
-      const auto status = onFinish();
-      cleanup();
-      return status;
+      // lock for async spinners
+      std::lock_guard lock(async_spin_mtx_);
+      if (nmsg_)
+      {
+        {
+          std::lock_guard lock(msg_mtx_);
+          msg_ = nmsg_.value();
+        }
+        status = onFinish();
+        nmsg_.reset();
+      }
+      else
+      {
+        if (timeout_ != ros::Duration(0) && ros::Time::now() - start_time_ > timeout_)
+        {
+          ROS_ERROR_STREAM_NAMED(LOGNAME, "No message received in topic " << topic_ << " after " << timeout_.toSec());
+          status = onFailure();
+        }
+        else
+        {
+          ROS_DEBUG_STREAM_THROTTLE_NAMED(1.0, LOGNAME,
+                                          "Waiting for message from topic "
+                                              << topic_ << "; elapsed time: " << ros::Time::now() - start_time_);
+          return NodeStatus::RUNNING;
+        }
+      }
     }
 
-    if (ros::Time::now() - start_time_ > timeout_)
-    {
-      ROS_ERROR_STREAM_NAMED("SubscriberNode",
-                             "No message received in topic " << topic_ << " after " << timeout_.toSec());
-      const auto status = onFailure();
-      cleanup();
-      return status;
-    }
-
-    return NodeStatus::RUNNING;
+    sub_.shutdown();
+    return status;
   }
 
   inline void onHalted() override final
   {
     onHalt();
-    cleanup();
+    {
+      std::lock_guard lock(async_spin_mtx_);
+      nmsg_.reset();
+    }
+    sub_.shutdown();
   }
 
 protected:
-  SubscriberT msg_;
-  std::optional<SubscriberT> nmsg_;
-  ros::Time start_time_;
-  ros::Subscriber sub_;
   std::string topic_;
   ros::Duration timeout_;
 
-  bool isEmpty() const
+  /**
+   * @brief get the reference to the message and the lock to the mutex. This is thread-safe if used correctly.
+   * This does not return a copy of the message, but a reference to it. The lock is returned to avoid copying it.
+   * Use it carefully, i.e., do not modify the message outside the lock scope.
+   * Example of not to do:
+   *
+    SubscriberT& msgRef;
+    {
+      auto [lock, msg] = getMsg();
+      msgRef = msg;
+      // lock is destroyed here, msg is no longer protected by mutex
+    }
+   */
+  std::pair<std::unique_lock<std::mutex>, SubscriberT&> getMsg()
   {
-    return !nmsg_;
+    std::unique_lock lock(msg_mtx_);
+    return { std::move(lock), msg_ };
   }
 
-  void callback(const SubscriberT& msg)
+  /**
+   * @brief get a copy of the message (thread safe)
+   * @return a copy of the message
+   */
+  SubscriberT getMsgCopy()
   {
-    nmsg_ = msg;
+    std::lock_guard lock(msg_mtx_);
+    return msg_;
   }
 };
 
