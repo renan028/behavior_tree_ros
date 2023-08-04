@@ -20,26 +20,32 @@ protected:
   inline BT::NodeStatus onFinish() override
   {
     finish_count++;
-    if (msg_.data)
+    auto [lock, msg] = getMsg();
+    if (msg.data)
     {
       true_count++;
+      ROS_DEBUG_STREAM("Received true at time " << ros::Time::now() << "; true_count: " << true_count);
     }
     else
     {
       false_count++;
+      ROS_DEBUG_STREAM("Received false at time " << ros::Time::now() << "; false_count: " << false_count);
     }
+    ROS_DEBUG_STREAM("SubscriberNode finish at time " << ros::Time::now() << "; finish_count: " << finish_count);
     return BT::NodeStatus::SUCCESS;
   }
 
   inline BT::NodeStatus onFailure() override
   {
     failure_count++;
+    ROS_DEBUG_STREAM("SubscriberNode failure at time " << ros::Time::now() << "; failure_count: " << failure_count);
     return BT::NodeStatus::FAILURE;
   }
 
   inline void onHalt() override
   {
     halt_count++;
+    ROS_DEBUG_STREAM("SubscriberNode halt at time " << ros::Time::now() << "; halt_count: " << halt_count);
   }
 
 public:
@@ -289,6 +295,81 @@ TEST_F(SubscriberNodeTest, halt_rerun)
   EXPECT_EQ(subscriber.true_count, 1);
   EXPECT_EQ(subscriber.false_count, 0);
   EXPECT_EQ(subscriber.halt_count, 1);
+}
+
+TEST_F(SubscriberNodeTest, stree_test)
+{
+  // test to make sure that the subscriber node can be used in a tree without deadlock (mutexes)
+  // testing halt, timeout, failure, and success alternately
+
+  BoolSubscriber subscriber("subscriber", config);
+  std::shared_ptr<BT::SequenceNode> sequence = std::make_shared<BT::SequenceNode>("sequence");
+  sequence->addChild(&subscriber);
+
+  int halt_counter = 0, timeout_counter = 0, failure_counter = 0, finish_counter = 0;
+  int true_counter = 0, false_counter = 0;
+  int tick_counter = 0;
+
+  auto init_status = sequence->executeTick();
+  ASSERT_EQ(init_status, BT::NodeStatus::RUNNING);
+  ASSERT_EQ(subscriber.finish_count, 0);
+  ASSERT_EQ(subscriber.failure_count, 0);
+  ASSERT_EQ(subscriber.halt_count, 0);
+
+  while (tick_counter < 60)
+  {
+    // alternate between publishing false (no latch), true (no latch), not publishing (timeout), and halting
+    if (tick_counter % 4 == 0)
+    {
+      sequence->halt();
+      ASSERT_EQ(subscriber.finish_count, finish_counter);
+      ASSERT_EQ(subscriber.failure_count, failure_counter);
+      ASSERT_EQ(subscriber.halt_count, ++halt_counter);
+      ASSERT_EQ(subscriber.true_count, true_counter);
+      ASSERT_EQ(subscriber.false_count, false_counter);
+    }
+    else if (tick_counter % 4 == 1)
+    {
+      std::thread t([&]() { keepPublishing(true); });
+      const auto status = tickWhileRunning(sequence);
+      terminate = true;
+      t.join();
+      terminate = false;
+      ASSERT_EQ(status, BT::NodeStatus::SUCCESS);
+      ASSERT_EQ(subscriber.finish_count, ++finish_counter);
+      ASSERT_EQ(subscriber.failure_count, failure_counter);
+      ASSERT_EQ(subscriber.halt_count, halt_counter);
+      ASSERT_EQ(subscriber.true_count, ++true_counter);
+      ASSERT_EQ(subscriber.false_count, false_counter);
+    }
+    else if (tick_counter % 4 == 2)
+    {
+      std::thread t([&]() { keepPublishing(false); });
+      const auto status = tickWhileRunning(sequence);
+      terminate = true;
+      t.join();
+      terminate = false;
+      ASSERT_EQ(status, BT::NodeStatus::SUCCESS);
+      ASSERT_EQ(subscriber.finish_count, ++finish_counter);
+      ASSERT_EQ(subscriber.failure_count, failure_counter);
+      ASSERT_EQ(subscriber.halt_count, halt_counter);
+      ASSERT_EQ(subscriber.true_count, true_counter);
+      ASSERT_EQ(subscriber.false_count, ++false_counter);
+    }
+    else if (tick_counter % 4 == 3)
+    {
+      const auto status = tickWhileRunning(sequence);
+      ASSERT_EQ(status, BT::NodeStatus::FAILURE);
+      ASSERT_EQ(subscriber.finish_count, finish_counter);
+      ASSERT_EQ(subscriber.failure_count, ++failure_counter);
+      ASSERT_EQ(subscriber.halt_count, halt_counter);
+      ASSERT_EQ(subscriber.true_count, true_counter);
+      ASSERT_EQ(subscriber.false_count, false_counter);
+    }
+    tick_counter++;
+    sequence->halt();
+    sequence->executeTick();
+  }
 }
 }  // namespace BT::test
 
