@@ -18,7 +18,7 @@ class GetTopic : public SubscriberNode<T>
 private:
   inline BT::NodeStatus onFinish() override
   {
-    this->setOutput("msg", this->msg_);
+    this->setOutput("msg", this->getMsgCopy());
     return BT::NodeStatus::SUCCESS;
   }
 

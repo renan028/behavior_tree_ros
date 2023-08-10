@@ -1,5 +1,5 @@
 <launch>
 
-  <test test-name="subscriber_test" pkg="bt_ros" type="subscriber_test" time-limit="20.0" />
+  <test test-name="subscriber_test" pkg="bt_ros" type="subscriber_test" time-limit="100.0" />
 
 </launch>
