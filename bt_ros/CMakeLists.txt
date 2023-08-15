@@ -38,6 +38,7 @@ include_directories(
 
 add_library(${PROJECT_NAME}
   src/executor_bt.cpp
+  src/controls/executor_node.cpp
 )
 target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES} ${Boost_LIBRARIES})
 
@@ -100,5 +101,13 @@ add_rostest_gtest(subscriber_test
   test/subscriber_test.cpp
 )
 target_link_libraries(subscriber_test
+  ${PROJECT_NAME}
+)
+
+add_rostest_gtest(executor_test
+  test/executor.test
+  test/executor_test.cpp
+)
+target_link_libraries(executor_test
   ${PROJECT_NAME}
 )

@@ -1,0 +1,5 @@
+<launch>
+
+  <test test-name="executor_test" pkg="bt_ros" type="executor_test" time-limit="20.0" />
+
+</launch>
