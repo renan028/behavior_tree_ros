@@ -34,8 +34,11 @@ public:
 
   static PortsList providedPorts()
   {
-    return { InputPort<std::string>("topic_name", "name of the ROS topic"),
-             InputPort<double>("timeout", 1.0, "timeout to subscribe to topic (sec)") };
+    return {
+      InputPort<std::string>("topic_name", "name of the ROS topic"),
+      InputPort<double>("timeout", 1.0, "timeout to subscribe to topic (sec)"),
+      InputPort<double>("max_delay", 0.0, "max delay wrt Time::now() (sec); ignored if negative"),
+    };
   }
 
 private:
@@ -63,7 +66,12 @@ private:
   virtual BT::NodeStatus onFailure()
   {
     return BT::NodeStatus::FAILURE;
-  };
+  }
+
+  virtual BT::NodeStatus onDelay()
+  {
+    return onFinish();
+  }
 
   virtual void onHalt()
   {
@@ -87,9 +95,13 @@ public:
 
     double sec;
     getInput("timeout", sec);
-    sec = sec < 0 ? 0 : sec;
-    timeout_ = ros::Duration(sec);
-    return NodeStatus::RUNNING;
+    timeout_ = sec <= 0 ? ros::Duration(0) : ros::Duration(sec);
+
+    double max_delay;
+    getInput("max_delay", max_delay);
+    max_delay_ = max_delay <= 0 ? ros::Duration(0) : ros::Duration(max_delay);
+
+    return onRunning();
   }
 
   inline NodeStatus onRunning() override final
@@ -104,21 +116,40 @@ public:
           std::lock_guard lock(msg_mtx_);
           msg_ = nmsg_.value();
         }
-        status = onFinish();
+
+        if constexpr (ros::message_traits::HasHeader<SubscriberT>::value)
+        {
+          if (max_delay_ != ros::Duration(0) && ros::Time::now() - msg_.header.stamp > max_delay_)
+          {
+            ROS_DEBUG_STREAM_NAMED(LOGNAME, "Message received from topic "
+                                                << topic_ << " is too old: " << ros::Time::now() - msg_.header.stamp
+                                                << " > " << max_delay_);
+            status = onDelay();
+          }
+          else
+          {
+            status = onFinish();
+          }
+        }
+        else
+        {
+          status = onFinish();
+        }
         nmsg_.reset();
       }
       else
       {
-        if (timeout_ != ros::Duration(0) && ros::Time::now() - start_time_ > timeout_)
+        const auto action_elapsed_time = ros::Time::now() - start_time_;
+        if (timeout_ != ros::Duration(0) && action_elapsed_time > timeout_)
         {
-          ROS_ERROR_STREAM_NAMED(LOGNAME, "No message received in topic " << topic_ << " after " << timeout_.toSec());
+          ROS_ERROR_STREAM_NAMED(LOGNAME,
+                                 "No message received in topic " << topic_ << " after " << action_elapsed_time);
           status = onFailure();
         }
         else
         {
-          ROS_DEBUG_STREAM_THROTTLE_NAMED(1.0, LOGNAME,
-                                          "Waiting for message from topic "
-                                              << topic_ << "; elapsed time: " << ros::Time::now() - start_time_);
+          ROS_DEBUG_STREAM_THROTTLE_NAMED(
+              1.0, LOGNAME, "Waiting for message from topic " << topic_ << "; elapsed time: " << action_elapsed_time);
           return NodeStatus::RUNNING;
         }
       }
@@ -141,6 +172,7 @@ public:
 protected:
   std::string topic_;
   ros::Duration timeout_;
+  ros::Duration max_delay_;
 
   /**
    * @brief get the reference to the message and the lock to the mutex. This is thread-safe if used correctly.
