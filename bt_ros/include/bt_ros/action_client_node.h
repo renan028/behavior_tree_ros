@@ -36,9 +36,11 @@ private:
 
   inline bool createActionClient(double timeout)
   {
-    action_client_ = std::make_shared<actionlib::SimpleActionClient<ActionT>>(action_name_, true);
+    action_client_ = std::make_unique<actionlib::SimpleActionClient<ActionT>>(action_name_, true);
     ROS_INFO_STREAM(LOGNAME << ": Waiting for action server " << action_name_);
 
+    // TODO refactor this to not block the tree (e.g. change status to running while waiting)
+    // while support infinite waiting (e.g. when timeout < 0)
     if (action_client_->waitForServer(ros::Duration(timeout)))
     {
       ROS_INFO_STREAM(LOGNAME << ": Action server " << action_name_ << " found");
@@ -54,7 +56,7 @@ private:
 
   inline bool isActive() const
   {
-    return action_client_ && action_client_->getState() == actionlib::SimpleClientGoalState::ACTIVE;
+    return action_client_ && !action_client_->getState().isDone();
   }
 
   inline void feedbackCb(const FeedbackConstPtr& feedback)
@@ -156,7 +158,7 @@ public:
 
 protected:
   std::string action_name_;
-  typename std::shared_ptr<actionlib::SimpleActionClient<ActionT>> action_client_;
+  typename std::unique_ptr<actionlib::SimpleActionClient<ActionT>> action_client_;
   GoalType goal_;
   FeedbackConstPtr feedback_;
 
@@ -200,6 +202,7 @@ protected:
       }
 
       onTick();
+      feedback_.reset();
       action_client_->sendGoal(goal_, {}, {}, boost::bind(&SimpleActionClientNode::feedbackCb, this, _1));
     }
 
@@ -214,6 +217,7 @@ protected:
           if (onNewGoalReceived(new_goal))
           {
             goal_ = new_goal;
+            feedback_.reset();
             action_client_->sendGoal(goal_, {}, {}, boost::bind(&SimpleActionClientNode::feedbackCb, this, _1));
           }
           else
